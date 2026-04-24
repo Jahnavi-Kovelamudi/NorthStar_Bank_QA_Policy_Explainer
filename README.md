@@ -99,7 +99,7 @@ requirements.txt
 ```
 
 ## Screenshots
-![Backend test](assets\API_Result_1.jpg)
+![Backend test](assets/API_Result_1.jpgAPI_Result_1.jpg)
 
 
 
