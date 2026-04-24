@@ -68,8 +68,7 @@ User query:
 """.strip()
 
     try:
-        response = call_gemini_text.generate_content(prompt)
-        text = response.text.strip()
+        text = call_gemini_text(prompt)
 
         data = json.loads(text)
         label = data.get("label", "UNCLEAR").strip().upper()
