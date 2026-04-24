@@ -7,6 +7,26 @@ from app.agents.fraud_agent import run_fraud_agent
 from app.agents.answer_agent import generate_answer
 from app.agents.critic_agent import critique_answer
 
+
+def get_fallback_planner_result() -> dict:
+    return {
+        "user_intent": "general banking support question",
+        "domains": ["general"],
+        "needs_escalation": False,
+        "reasoning": "Fallback planner result used due to planner failure or invalid structure."
+    }
+
+
+def get_fallback_critic_feedback(reason: str) -> dict:
+    return {
+        "approved": False,
+        "completeness": "Fallback critic response used.",
+        "tone": "Not evaluated due to critic failure.",
+        "policy_alignment": reason,
+        "suggested_fix": ""
+    }
+
+
 def run_workflow(question: str) -> dict:
     trace = []
 
@@ -31,27 +51,79 @@ def run_workflow(question: str) -> dict:
         }
 
     trace.append("planner")
-    planner_result = plan_query(question)
+    try:
+        planner_result = plan_query(question)
+        if not isinstance(planner_result, dict) or "domains" not in planner_result:
+            planner_result = get_fallback_planner_result()
+    except Exception:
+        planner_result = get_fallback_planner_result()
 
     trace.append("retrieval")
-    retrieval_result = retrieve_documents(question, planner_result["domains"])
+    try:
+        retrieval_result = retrieve_documents(question, planner_result.get("domains", ["general"]))
+        if not isinstance(retrieval_result, dict):
+            retrieval_result = {"matched_files": [], "snippets": []}
+    except Exception:
+        retrieval_result = {"matched_files": [], "snippets": []}
+
+    matched_files = retrieval_result.get("matched_files", [])
+    snippets = retrieval_result.get("snippets", [])
 
     domain_outputs = []
 
-    if "accounts" in planner_result["domains"]:
+    if "accounts" in planner_result.get("domains", []):
         trace.append("accounts_agent")
-        domain_outputs.append(run_accounts_agent(question, retrieval_result["snippets"]))
+        try:
+            domain_outputs.append(run_accounts_agent(question, snippets))
+        except Exception:
+            domain_outputs.append({
+                "domain": "accounts",
+                "summary": "Accounts agent fallback: no account-specific guidance available.",
+                "evidence": []
+            })
 
-    if "cards" in planner_result["domains"]:
+    if "cards" in planner_result.get("domains", []):
         trace.append("cards_agent")
-        domain_outputs.append(run_cards_agent(question, retrieval_result["snippets"]))
+        try:
+            domain_outputs.append(run_cards_agent(question, snippets))
+        except Exception:
+            domain_outputs.append({
+                "domain": "cards",
+                "summary": "Cards agent fallback: no card-specific guidance available.",
+                "evidence": []
+            })
 
-    if "fraud" in planner_result["domains"]:
+    if "fraud" in planner_result.get("domains", []):
         trace.append("fraud_agent")
-        domain_outputs.append(run_fraud_agent(question, retrieval_result["snippets"]))
+        try:
+            domain_outputs.append(run_fraud_agent(question, snippets))
+        except Exception:
+            domain_outputs.append({
+                "domain": "fraud",
+                "summary": "Fraud agent fallback: no fraud-specific guidance available.",
+                "evidence": []
+            })
+
+    if not domain_outputs:
+        domain_outputs.append({
+            "domain": "general",
+            "summary": "No specialized domain agent was triggered. Use general banking support guidance and official support channels if the request is account-specific.",
+            "evidence": []
+        })
 
     trace.append("answer_agent")
-    final_answer = generate_answer(question, planner_result, retrieval_result, domain_outputs)
+    try:
+        final_answer = generate_answer(question, planner_result, retrieval_result, domain_outputs)
+        if not final_answer or not final_answer.strip():
+            final_answer = (
+                "I can help with general banking guidance. For account-specific or security-sensitive issues, "
+                "please use official bank support channels."
+            )
+    except Exception:
+        final_answer = (
+            "I can help with general banking guidance. For account-specific or security-sensitive issues, "
+            "please use official bank support channels."
+        )
 
     trace.append("output_guardrails")
     output_result = validate_output(final_answer)
@@ -62,12 +134,17 @@ def run_workflow(question: str) -> dict:
         )
 
     trace.append("critic_agent")
-    critic_feedback = critique_answer(question, final_answer, planner_result)
+    try:
+        critic_feedback = critique_answer(question, final_answer, planner_result)
+        if not isinstance(critic_feedback, dict):
+            critic_feedback = get_fallback_critic_feedback("Fallback critic used due to invalid response structure.")
+    except Exception:
+        critic_feedback = get_fallback_critic_feedback("Fallback critic used due to critic failure.")
 
     return {
         "question": question,
         "planner": planner_result,
-        "matched_files": retrieval_result["matched_files"],
+        "matched_files": matched_files,
         "domain_outputs": domain_outputs,
         "final_answer": final_answer,
         "output_safe": output_result["safe"],
