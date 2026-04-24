@@ -1,0 +1,7 @@
+venv/
+bank_qa_env/
+__pycache__/
+*.pyc
+.env
+.idea/
+.vscode/
