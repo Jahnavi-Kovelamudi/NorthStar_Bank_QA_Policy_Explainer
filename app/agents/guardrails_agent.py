@@ -133,16 +133,38 @@ def validate_input(question: str) -> dict:
 
 
 def validate_output(answer: str) -> dict:
-    lowered = answer.lower()
-
-    for pattern in OUTPUT_BLOCK_PATTERNS:
-        if re.search(pattern, lowered):
+    try:
+        if answer is None:
             return {
                 "safe": False,
-                "reason": f"Blocked due to unsafe output pattern: {pattern}"
+                "reason": "Blocked because answer was None."
             }
 
-    return {
-        "safe": True,
-        "reason": "Output passed guardrails."
-    }
+        if not isinstance(answer, str):
+            answer = str(answer)
+
+        lowered = answer.lower().strip()
+
+        if not lowered:
+            return {
+                "safe": False,
+                "reason": "Blocked because output was empty."
+            }
+
+        for pattern in OUTPUT_BLOCK_PATTERNS:
+            if re.search(pattern, lowered):
+                return {
+                    "safe": False,
+                    "reason": f"Blocked due to unsafe output pattern: {pattern}"
+                }
+
+        return {
+            "safe": True,
+            "reason": "Output passed guardrails."
+        }
+
+    except Exception as e:
+        return {
+            "safe": False,
+            "reason": f"Output validation failed safely: {str(e)}"
+        }
